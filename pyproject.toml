@@ -1,0 +1,21 @@
+[project]
+name = "gingerbread"
+version = "0.1.0"
+description = "糖果屋之後 — 白天餵飽他們，晚上他們才不會餓到吃掉葛蕾特"
+requires-python = ">=3.11,<3.14"
+dependencies = []
+
+[project.optional-dependencies]
+display = ["pygame-ce>=2.5"]
+test = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
