@@ -33,7 +33,7 @@ ASLEEP: Final = (74, 67, 86)
 HUD_HEIGHT: Final = 54
 
 _CJK_FONT_CANDIDATES: Final = (
-    "assets/NotoSansTC-Regular.ttf",          # bundled, used by the web build
+    "assets/GameCJK-Subset.ttf",              # bundled subset; the web build has no system fonts
     "/System/Library/Fonts/PingFang.ttc",
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
     "/System/Library/Fonts/STHeiti Light.ttc",
