@@ -162,7 +162,7 @@ class Session:
             parts.append("swing")
         if keys[pygame.K_k]:
             parts.append("guard")
-        if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
+        if keys[pygame.K_QUOTE]:
             parts.append("dash")
 
         # Skills are edge-triggered — holding L must not spend the whole stock
