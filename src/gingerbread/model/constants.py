@@ -1,0 +1,233 @@
+"""Tuning constants for 《糖果屋之後》.
+
+Every number the rules depend on lives here, so balancing never means hunting
+through logic.  This module imports nothing from the rest of the game — it is
+the bottom of the dependency graph and must stay that way.
+
+Values are frozen by ``遊戲設計定案.md`` v2.0.  When that document and this
+file disagree, the document wins and this file is wrong.
+"""
+
+from __future__ import annotations
+
+from typing import Final
+
+# ── world ────────────────────────────────────────────────────────────
+WIDTH: Final = 900
+HEIGHT: Final = 520
+SISTER_X: Final = WIDTH / 2
+SISTER_Y: Final = HEIGHT / 2
+
+#: One simulation step.  Fixed on purpose: a variable step would make replays
+#: diverge, and the whole determinism contract rests on this being constant.
+FIXED_DT: Final = 1.0 / 60.0
+
+#: How far from the playfield edge the player's centre may travel.
+PLAY_MARGIN: Final = 16.0
+
+# ── phase lengths ────────────────────────────────────────────────────
+DAY_SECONDS: Final = 35.0
+NIGHT_SECONDS: Final = 50.0
+BOSS_NIGHT_SECONDS: Final = 70.0
+ACTION_POINTS: Final = 0
+
+#: Nightfall fade.  No monster acts until this completes, so the player is
+#: never hit by something that spawned while the screen was still going dark.
+DUSK_SECONDS: Final = 1.2
+
+# ── Gretel: the failure condition ────────────────────────────────────
+#: Internal units are *half hearts*, so a half-heart heal is an integer.
+SISTER_MAX_HP: Final = 6          # displayed as 3 hearts
+SISTER_REACH: Final = 26.0        # monsters this close take her
+SISTER_LIGHT_RADIUS: Final = 44.0
+
+# ── Hansel: the endurance resource ───────────────────────────────────
+PLAYER_RADIUS: Final = 13.0
+PLAYER_START_HP: Final = 5
+PLAYER_MAX_HP_CAP: Final = 10
+
+WALK_SPEED: Final = 196.0
+WALK_SPEED_CAP: Final = 296.0
+DASH_SPEED: Final = 560.0
+DASH_TIME: Final = 0.16
+DASH_COOLDOWN: Final = 1.4
+
+#: Swing geometry.  Range and cooldown are both upgrade axes, so these are the
+#: *starting* values, not the only ones — see ``content/upgrades.py``.
+SWING_RANGE: Final = 60.0
+SWING_RANGE_CAP: Final = 120.0
+SWING_ARC: Final = 0.78           # radians either side of facing
+SWING_ARC_CAP: Final = 1.60       # +20 degrees a level, four levels
+SWING_COOLDOWN: Final = 0.55
+#: Four levels of +12% attack speed compound to 0.55 / 1.12**4.
+SWING_COOLDOWN_CAP: Final = 0.30
+SWING_ANIM: Final = 0.16
+SWING_SLOWDOWN: Final = 0.42      # movement multiplier during the swing
+
+#: Getting shoved.  The brief invulnerability exists so a crowd cannot lock the
+#: player in place forever — without it, one bad step is an unrecoverable loop.
+STUN_TIME: Final = 0.12
+INVULNERABLE_TIME: Final = 1.2
+KNOCKBACK_SPEED: Final = 260.0
+KNOCKBACK_DECAY: Final = 0.86     # per-frame multiplier on residual knockback
+
+#: Being caught douses the lantern: light drops to this fraction for a while.
+DOUSE_SECONDS: Final = 2.0
+DOUSE_FACTOR: Final = 0.55
+
+# ── guarding ─────────────────────────────────────────────────────────
+# Held, with no cooldown and no window to time.  Every version with a rhythm to
+# catch was reported as unusable, and the honest reading of "he does not lose
+# health on contact" is a state, not a move.  The cost is built in rather than
+# bolted on: a guarding Hansel cannot swing, so holding K means the monsters
+# walking past him toward Gretel keep walking.
+GUARD_FADE: Final = 0.12          # seconds the shield takes to appear
+#: How far a body bounces off the guard — the same 26 a lantern hit gives, so
+#: contact feels the same whichever way it happens.  It is a nudge, not the old
+#: shove: large knockback from a defensive key is what drove monsters into
+#: Gretel, because the player guarding is standing between her and them.
+GUARD_NUDGE: Final = 26.0
+
+# ── barricades ───────────────────────────────────────────────────────
+#: Seconds a monster-dropped rock lasts.  Rocks used to be permanent, and a
+#: single barricade monster could spend a night walling the field in: the player
+#: was sealed in a pocket he could not leave and the other monsters jammed
+#: against the rubble.  A rock is now a temporary problem, like everything else
+#: in a night.
+ROCK_LIFE: Final = 9.0
+#: How many monster-made rocks may exist at once, across every barricade
+#: monster on the field.
+ROCK_LIMIT: Final = 3
+#: Clearance a new rock needs from the player, on top of both radii.  Dropping
+#: one on his head was the trapping bug: he was inside it before it existed, and
+#: ``slide`` refuses every direction from inside an obstacle.
+ROCK_CLEAR_PLAYER: Final = 30.0
+#: Clearance a new rock needs from another rock.  Two rocks that touch begin a
+#: wall; keeping them apart guarantees a gap wide enough to walk through.
+ROCK_CLEAR_ROCK: Final = 54.0
+
+# ── elements ─────────────────────────────────────────────────────────
+#: Damage multiplier when a spell hits something it is the answer to.
+WEAKNESS_MULTIPLIER: Final = 3.0
+#: Seconds a boss stays open after its weakness lands.
+WEAKNESS_WINDOW: Final = 3.0
+#: Damage multiplier while a boss is in that open state.
+EXPOSED_MULTIPLIER: Final = 2.0
+
+# ── downed state ─────────────────────────────────────────────────────
+#: Hansel at zero HP goes down rather than dying, so the cost of his mistake is
+#: paid in Gretel's hearts — the thing the player actually cares about.  Set
+#: DOWNED_ENABLED False to make zero HP end the night immediately instead;
+#: the rules read this flag rather than assuming either policy.
+DOWNED_ENABLED: Final = True
+DOWNED_SECONDS: Final = 5.0
+#: Still enough to see the ground and whatever is standing over you.
+#: At 30 the screen read as solid black, which players reported as the
+#: game breaking rather than as a state they were in.
+DOWNED_LIGHT_RADIUS: Final = 78.0
+DOWNED_REVIVE_FRACTION: Final = 0.5   # of max HP
+
+#: Downs allowed per night before the night ends anyway.
+#:
+#: This is deliberately far above what any night can reach, which is a way of
+#: saying: **going down never ends the night by itself.**  An earlier version
+#: allowed one, and simulation showed the result immediately — across three
+#: scripted skill levels and three seeds, every single loss came from Hansel
+#: going down twice, and none from Gretel running out of hearts.  That inverts
+#: the whole point of the game.  The run is supposed to end because the person
+#: you were protecting was taken, not because you got tired.
+#:
+#: Going down is still severe: five seconds of near-total darkness with nobody
+#: guarding her costs hearts on its own.  Letting that consequence do the work
+#: keeps one failure condition instead of two competing ones.
+DOWNED_ALLOWANCE: Final = 999
+
+# ── lantern light ────────────────────────────────────────────────────
+# 132 was too dark to read the layout at a glance; 198 lit so much of the field
+# that the darkness stopped being a rule at all.  168 keeps the shape of the
+# ground visible around him without handing him the whole square.
+START_LIGHT: Final = 168.0
+LIGHT_CAP: Final = 392.0
+
+#: Fraction of the radius that counts as "properly lit" for rules that ask
+#: (the light-fearing monster).  The rim is dim, so it should not count.
+LIT_FRACTION: Final = 0.82
+
+# ── night pressure ───────────────────────────────────────────────────
+WARN_SECONDS: Final = 1.05         # telegraph before a spawn arrives
+SURGE_TELL_SECONDS: Final = 2.5    # advance warning before a surge
+SPAWN_EDGE_INSET: Final = 26.0
+DROP_PICKUP_RADIUS: Final = 24.0
+
+#: Speed bonus applied as the night wears on: +SPEED_PER_WAVE every
+#: WAVE_SECONDS.  Keeps late-night pressure rising without new monster types.
+WAVE_SECONDS: Final = 12.0
+SPEED_PER_WAVE: Final = 2.0
+
+# ── combo ────────────────────────────────────────────────────────────
+COMBO_WINDOW: Final = 2.5
+#: Above this, kills drop one extra sugar.  Without a payout the counter is
+#: decoration; the JS build shipped it as decoration and it read as a bug.
+COMBO_BONUS_AT: Final = 5
+
+# ── economy ──────────────────────────────────────────────────────────
+#: Permanent upgrades get more expensive as they stack; consumables do not.
+UPGRADE_PRICE_STEP: Final = 2
+
+# ── seven-nights campaign ────────────────────────────────────────────
+CAMPAIGN_NIGHTS: Final = 7
+SPELL_UNLOCK_NIGHT: Final = 3
+FIRST_BOSS_NIGHT: Final = 2        # night 1 is the tutorial
+
+# ── endless mode ─────────────────────────────────────────────────────
+ENDLESS_MONSTER_CAP: Final = 60
+ENDLESS_CHOICES: Final = 3
+
+#: Kills between upgrade offers.
+#:
+#: Was 12, which measured as unreachable: base attack kills a villager in two
+#: seconds while arrivals came every three, so the player fell behind before
+#: banking a single offer — needing upgrades to get kills and kills to get
+#: upgrades.  Six is inside the first minute even for a struggling player.
+ENDLESS_CHOICE_EVERY: Final = 6
+
+#: An offer also arrives on this timer regardless of kills, so a player who is
+#: losing still gets the tool that might turn it around.  A difficulty spiral
+#: with no way out is just a countdown.
+ENDLESS_CHOICE_SECONDS: Final = 45.0
+
+#: Endless has no day phase, so it hands the player the rough equivalent of the
+#: four action points a campaign night opens with — otherwise it is the same
+#: game played permanently under-equipped, which measured as death in under
+#: thirty seconds.
+ENDLESS_STARTING_KIT: Final = (("lantern", 1), ("shade", 1), ("grip", 2))
+
+#: Seconds of grace before arrivals begin, so the first thing a player sees is
+#: the field rather than a monster already on top of them.
+ENDLESS_GRACE: Final = 5.0
+
+#: Seconds between arrivals before difficulty scaling is applied.  The first
+#: minute is slacker so the player can learn the field and bank an upgrade
+#: before pressure means anything.  Both are divided by ``pressure(minutes)``.
+#: Measured with ``tools/balance.py``: 3.2 gave an average run of 2.2 minutes,
+#: 4.4 gave 2.3, and 5.6 gave 3.6.  Still short of the 6–10 minute target, and
+#: the reason is worth recording — a run ends with roughly thirty monsters alive
+#: at once, i.e. the player's kill rate plateaus (swing cooldown floors at 0.5 s
+#: and attack caps at 6) while arrivals keep accelerating.  Closing that gap
+#: needs a *capability* the player does not have yet — a wider arc, a
+#: multi-target hit, something — which is content design, not a constant.
+ENDLESS_OPENING_INTERVAL: Final = 7.0
+ENDLESS_BASE_INTERVAL: Final = 5.6
+ENDLESS_MIN_INTERVAL: Final = 0.45
+
+#: Gretel's hearts in endless.
+#:
+#: Larger than the campaign's, and not because endless is meant to be easier.
+#: In the campaign a leaked monster costs half a heart that can be bought back
+#: at dawn, and a night is only fifty seconds long.  Endless has no dawn and no
+#: shop, so the campaign's six half-hearts are a hard budget of six mistakes for
+#: an entire run — measured, that ended the average run in about a minute.  One
+#: defender cannot cover four edges converging on a fixed point indefinitely;
+#: the mode's difficulty has to come from the rising curve, not from an
+#: allowance that never refills.
+ENDLESS_SISTER_HP: Final = 14

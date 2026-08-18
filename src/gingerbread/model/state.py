@@ -1,0 +1,314 @@
+"""Run state: what carries between nights, and what exists during one.
+
+Two records matter here.
+
+``Meta`` is progress that **survives** a night — the night counter, sugar,
+upgrade levels, Gretel's remaining hearts.  It is what makes preparation
+compound, and it is the only thing a save file needs.
+
+``State`` is one night (or one day) in flight.  It holds every entity and every
+timer, and it is what ``apply_action`` copies and returns.
+
+Two decisions here are load-bearing for the determinism contract.
+
+**Time is counted in integer ticks.**  Accumulating ``1/60`` as a float reaches
+49.999999999998444 after 3000 steps, so a fifty-second night ran fifty seconds
+*and one tick*, and the spawn-interval formula was fed a value that drifted all
+night.  Seconds are derived for display and never accumulated.
+
+**Upgrade levels are a dict, not fields.**  A new upgrade must cost one row in
+``content/upgrades.py`` and zero changes here.  The moment upgrades become
+fields, every new one touches the state, the copy, the snapshot and the save
+format.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+
+from . import constants as C
+from .entities import (Boss, Drop, Effect, Feedback, Hazard, Monster, Obstacle, Player,
+                       Projectile, Puddle, Warning)
+from .rng import Rng, Streams
+
+
+def to_ticks(seconds: float) -> int:
+    """Convert a duration in seconds to whole ticks, rounding to nearest."""
+    return int(round(seconds / C.FIXED_DT))
+
+
+class Phase(str, Enum):
+    """Where a run currently is.  The ``str`` mixin keeps snapshots JSON-safe."""
+
+    DAY = "day"
+    NIGHT = "night"
+    SHOP = "shop"          # survived; spending happens in its own phase
+    LOST = "lost"          # Gretel was taken; the run is over
+    VICTORY = "victory"    # campaign only: the seventh night is behind you
+
+
+class Mode(str, Enum):
+    """Which director drives the run.
+
+    CAMPAIGN is the seven-night story: day and night alternate, a boss from
+    night two, a fixed ending.  ENDLESS has no day phase and no ending —
+    pressure rises forever and the run is scored by how long it held.
+    """
+
+    CAMPAIGN = "campaign"
+    ENDLESS = "endless"
+
+
+@dataclass(slots=True)
+class Meta:
+    """Everything that survives a night.
+
+    This is the compounding layer: the reason a well-prepared night three is
+    survivable and an unprepared one is not.
+    """
+
+    mode: Mode = Mode.CAMPAIGN
+
+    #: Testing switch: nothing can hurt Hansel or Gretel.  It lives on the run
+    #: rather than on the night so a night can be replayed with it on, and it is
+    #: written into the snapshot — a cheat that a headless comparison could not
+    #: see would make two different runs look identical.
+    godmode: bool = False
+    night: int = 1
+    sugar: int = 0
+
+    #: Gretel's hearts, in half-heart units, carried across nights.  Never
+    #: refilled by dawn — healing costs sugar, which is what makes damage hurt.
+    sister_hp: int = C.SISTER_MAX_HP
+
+    #: upgrade key -> how many times it has been bought.  See content/upgrades.
+    upgrades: dict[str, int] = field(default_factory=dict)
+
+    #: Skills learned, in learn order.  Once learned, always usable.
+    skills: list[str] = field(default_factory=list)
+    #: Unspent skill points.  One arrives each day.
+    skill_points: int = 0
+
+    #: The two carried skills, in slot order.  Two rather than four so the
+    #: decision is made *before* the night, in the shop, where the player can
+    #: think — rather than during it, where they cannot.
+    slots: list[str | None] = field(default_factory=lambda: [None, None])
+
+    # ── records, for the menu and the share text ─────────────────────
+    best_night: int = 0
+    best_endless_ticks: int = 0
+    best_endless_kills: int = 0
+
+    def level(self, key: str) -> int:
+        """How many times ``key`` has been bought.  Absent means zero."""
+        return self.upgrades.get(key, 0)
+
+    @property
+    def max_sister_hp(self) -> int:
+        """Gretel's ceiling, which differs by mode.
+
+        Endless has no dawn to heal at, so its allowance has to be larger — see
+        ``constants.ENDLESS_SISTER_HP`` for the measurement behind that.
+        """
+        return (C.ENDLESS_SISTER_HP if self.mode is Mode.ENDLESS
+                else C.SISTER_MAX_HP)
+
+    def clear_nightly(self) -> None:
+        """Drop the day-only upgrades.
+
+        Whetting the lantern and adding oil are stored as upgrade levels so they
+        flow through the same summation as permanent growth.  The cost of that
+        convenience is that someone has to clear them, and this is the one
+        place that does.
+        """
+        from .content.upgrades import UPGRADES
+
+        for key, spec in UPGRADES.items():
+            if spec.consumable and spec.base_cost == 0:
+                self.upgrades.pop(key, None)
+
+
+@dataclass(slots=True)
+class Stats:
+    """Per-night tally.  Read by the result screen, never by a rule."""
+
+    kills: int = 0
+    kills_by_lantern: int = 0
+    kills_by_spell: int = 0
+    reached_sister: int = 0
+    sugar_picked: int = 0
+    sugar_left: int = 0
+    damage_taken: int = 0
+    downs: int = 0
+    best_combo: int = 0
+    boss_killed: bool = False
+
+
+@dataclass(slots=True)
+class State:
+    """One day or night in flight.  Never holds a pygame object."""
+
+    phase: Phase
+    seed: int
+    meta: Meta
+    player: Player
+
+    action_points: int = C.ACTION_POINTS
+
+    #: Steps simulated since this state was created.  Distinct from
+    #: ``ticks_elapsed``, which restarts with each phase.
+    tick: int = 0
+
+    #: Phase length and remaining time, both in whole ticks.
+    ticks_left: int = 0
+    ticks_total: int = 0
+    #: Ticks since this phase began.
+    ticks_elapsed: int = 0
+    #: Ticks since the run began; the endless mode's real clock.
+    ticks_total_run: int = 0
+
+    #: 0 at nightfall, 1 once fully dark.  No monster acts until it reaches 1.
+    dusk: float = 0.0
+
+    #: Which map this night uses; a key into the map table.
+    stage: str = "village_square"
+
+    monsters: list[Monster] = field(default_factory=list)
+    bosses: list[Boss] = field(default_factory=list)
+    warnings: list[Warning] = field(default_factory=list)
+    drops: list[Drop] = field(default_factory=list)
+    obstacles: list[Obstacle] = field(default_factory=list)
+    projectiles: list[Projectile] = field(default_factory=list)
+    #: Mud, syrup, fire — anything on the ground that acts on whoever stands in it.
+    puddles: list[Puddle] = field(default_factory=list)
+    #: Twisters and water traps: the things the player's skills leave behind.
+    hazards: list[Hazard] = field(default_factory=list)
+    effects: list[Effect] = field(default_factory=list)
+
+    #: The daylight version of tonight's monsters — the same people, still
+    #: human — as (spec, x, y, wake_ticks), so the day view and the night spawn
+    #: cannot disagree about who is coming.
+    sleepers: list[tuple[str, float, float, int]] = field(default_factory=list)
+
+    spawn_ticks: int = 0
+    #: Surge times, in ticks from nightfall, soonest first.
+    surges: list[int] = field(default_factory=list)
+    #: Ticks until the next surge lands, while its warning is showing.
+    surge_tell: int = 0
+
+    #: Whether tonight's boss has already been sent in.  This lives in the
+    #: state, not on the director, because a director is rebuilt on every
+    #: ``apply_action`` — anything it remembered between calls would be lost,
+    #: and worse, would not be copied or replayed with the rest of the run.
+    boss_sent: bool = False
+    #: Tick at which the boss enters, resolved once at nightfall.
+    boss_tick: int = 0
+    #: Tonight's boss key, or None.
+    boss_key: str | None = None
+
+    #: Active night event and how many ticks it has left.
+    event: str | None = None
+    event_ticks: int = 0
+    #: Tonight's rolled event and the tick it fires on.  Rolled at nightfall so
+    #: the whole night is decided by the seed, but delivered part-way through so
+    #: it lands as a turn in the night rather than as a starting condition.
+    event_pending: str | None = None
+    event_at: int = 0
+
+    #: Multiplier on every light radius, owned by night events.  It lives in
+    #: state rather than in the renderer because the rules read light too — a
+    #: light-fearing monster must freeze in exactly the area the player sees
+    #: lit, and it cannot if the two sides compute the radius differently.
+    light_scale: float = 1.0
+
+    #: The same multiplier, owned by boss phases instead of by events.  Kept
+    #: apart from ``light_scale`` because both can be in force at once: a single
+    #: field meant whichever wrote last silently cancelled the other, and a fog
+    #: phase that ended never handed the light back at all.
+    fog_scale: float = 1.0
+
+    #: Extra lights this map contributes, frozen at nightfall as (x, y, radius).
+    #: Frozen rather than re-read from the map table each frame so ``lights_of``
+    #: stays a pure function of state and replays keep matching.
+    map_lights: tuple[tuple[float, float, float], ...] = ()
+
+    #: Ticks of moonlight remaining: reveals the field without freezing anything
+    #: that fears the lantern.  Kept apart from ``map_lights`` for that reason.
+    reveal_ticks: int = 0
+
+    #: Ticks during which no new arrival is scheduled (the "hush" event).
+    hush_ticks: int = 0
+
+    combo: int = 0
+    combo_ticks: int = 0
+
+    #: Ticks remaining before each skill can be used again.  Lives in the state
+    #: rather than in Meta because it is a fact about tonight, and it resets
+    #: with the night.
+    cooldowns: dict[str, int] = field(default_factory=dict)
+
+    #: Endless mode: kills banked toward the next upgrade offer, and the offer
+    #: itself while the player is choosing.
+    pending_choice: list[str] = field(default_factory=list)
+    kills_since_choice: int = 0
+    #: Tick of the last upgrade offer, so one can also be granted on a timer.
+    last_offer_tick: int = 0
+
+    feedback: Feedback = field(default_factory=Feedback)
+    stats: Stats = field(default_factory=Stats)
+
+    #: Things that happened this tick, as flat strings.  The shell reads these
+    #: to trigger sounds; nothing in the rules ever reads them back.  Cleared at
+    #: the start of every ``apply_action``.
+    events: list[str] = field(default_factory=list)
+
+    #: Named random substreams, all seeded from ``seed``.  The placeholder
+    #: default exists only so the dataclass is constructible; every real path
+    #: goes through ``new_game``, which seeds it properly.
+    streams: Streams = field(default_factory=lambda: Streams(0, 0),
+                             repr=False, compare=False)
+
+    # ── derived time ─────────────────────────────────────────────────
+    @property
+    def rng(self) -> Rng:
+        """The general-purpose stream.
+
+        Subsystems with their own stream — spawning, events, loot, bosses —
+        should name it instead, so changing one subsystem's content cannot
+        shift another's rolls and invalidate a recorded seed.
+        """
+        return self.streams.misc
+
+    @property
+    def elapsed(self) -> float:
+        """Seconds elapsed this phase, derived rather than accumulated."""
+        return self.ticks_elapsed * C.FIXED_DT
+
+    @property
+    def timer(self) -> float:
+        """Seconds left in this phase."""
+        return self.ticks_left * C.FIXED_DT
+
+    @property
+    def timer_max(self) -> float:
+        return self.ticks_total * C.FIXED_DT
+
+    @property
+    def timer_fraction(self) -> float:
+        """How much of the phase is left, from 1 down to 0."""
+        return self.ticks_left / self.ticks_total if self.ticks_total else 0.0
+
+    # ── derived state ────────────────────────────────────────────────
+    @property
+    def over(self) -> bool:
+        return self.phase in (Phase.SHOP, Phase.LOST, Phase.VICTORY)
+
+    @property
+    def dark(self) -> bool:
+        """True once it is night and the fade has begun."""
+        return self.phase is Phase.NIGHT and self.dusk > 0
+
+    def emit(self, name: str) -> None:
+        """Record that something happened, for the shell to react to."""
+        self.events.append(name)

@@ -24,8 +24,11 @@ WEB = ROOT / "web"
 MAIN = '''"""Browser entry point (pygbag compiles this to WebAssembly)."""
 
 import asyncio
+import os
 
-from gingerbread.game import Game
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+
+from gingerbread.app.game import Game
 
 
 async def main() -> None:
