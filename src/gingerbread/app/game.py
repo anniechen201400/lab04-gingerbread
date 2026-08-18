@@ -224,6 +224,7 @@ class Session:
 class Game:
     def __init__(self, seed: int = 42, fullscreen: bool = True) -> None:
         pygame.init()
+        pygame.key.stop_text_input()
         try:
             pygame.mixer.init()
         except pygame.error:
