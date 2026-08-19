@@ -39,6 +39,55 @@ def _col(ui: UI, x: float, y: float, w: float, h: float, gap: float = 8):
 
 
 # ── menu ─────────────────────────────────────────────────────────────
+class HelpScene(Scene):
+    """操作說明頁面。"""
+
+    def __init__(self, app_state) -> None:
+        self.g = app_state
+
+    def update(self, app: SceneStack, ui: UI, dt: float) -> None:
+        ui.veil(250)
+
+        ui.text(
+            "操作說明",
+            (ui.s(MID), ui.s(90)),
+            "huge",
+            P.EMBER,
+            "center",
+        )
+
+        instructions = (
+            ("WASD / 方向鍵", "移動"),
+            ("J / 空白鍵", "揮燈攻擊"),
+            ("K", "防禦"),
+            ("' 鍵", "衝刺"),
+            ("1", "閃電：清除範圍內的敵人"),
+            ("2", "龍捲風：控制並攻擊敵人"),
+            ("Esc", "返回上一頁"),
+        )
+
+        y = 180
+        for key, description in instructions:
+            ui.text(
+                f"{key}　{description}",
+                (ui.s(MID), ui.s(y)),
+                "body",
+                P.BONE,
+                "center",
+            )
+            y += 48
+
+        ui.text(
+            "按 Esc 返回主選單",
+            (ui.s(MID), ui.s(570)),
+            "small",
+            P.MUTED,
+            "center",
+        )
+
+        if pygame.K_ESCAPE in ui.keys:
+            app.pop()
+
 class MenuScene(Scene):
     """The start screen: pick a mode.
 
@@ -55,7 +104,7 @@ class MenuScene(Scene):
         ui.text("這一次，換他來保護妹妹。",
                 (ui.s(MID), ui.s(142)), "body", P.BONE_DIM, "center")
 
-        col = _col(ui, MID - 170, 196, 340, 220, gap=12)
+        col = _col(ui, MID - 170, 196, 340, 280, gap=12)
         if ui.button("campaign", col.slot(ui.s(60)), "七夜",
                      "撐過七個夜晚，每一夜都有牠們的頭目"):
             self.g.start(m.Mode.CAMPAIGN)
@@ -66,6 +115,8 @@ class MenuScene(Scene):
             app.replace(PlayScene(self.g))
         if ui.button("codex", col.slot(ui.s(42)), "圖鑑", "看看你會遇到什麼"):
             app.push(CodexScene(self.g))
+        if ui.button("help", col.slot(ui.s(42)), "操作說明"):
+            app.push(HelpScene(self.g))
 
         meta = self.g.saved
         best = f"最佳：第 {meta.best_night} 夜"
