@@ -603,37 +603,102 @@ class CodexScene(Scene):
         self.page = 0
         self.scroll = 0
 
-    def update(self, app: SceneStack, ui: UI, dt: float) -> None:
-        ui.veil(250)
-        ui.text("圖鑑", (ui.s(MID), ui.s(38)), "big", P.EMBER, "center")
+   def update(self, app: SceneStack, ui: UI, dt: float) -> None:
+    ui.veil(250)
+    ui.text("圖鑑", (ui.s(MID), ui.s(38)), "big", P.EMBER, "center")
 
-        tabs = Stack.split(ui.box(MID - 210, 64, 420, 32), 3, gap=ui.s(6))
-        for index, (name, cell) in enumerate(zip(self.PAGES, tabs)):
-            if ui.button(f"tab{index}", cell, name, selected=index == self.page):
-                self.page, self.scroll = index, 0
+    tabs = Stack.split(ui.box(MID - 210, 64, 420, 32), 3, gap=ui.s(6))
+    for index, (name, cell) in enumerate(zip(self.PAGES, tabs)):
+        if ui.button(
+            f"tab{index}",
+            cell,
+            name,
+            selected=index == self.page,
+        ):
+            self.page, self.scroll = index, 0
 
-        rows = self._rows()
-        if pygame.K_DOWN in ui.keys:
-            self.scroll = min(max(0, len(rows) - self.PER_PAGE), self.scroll + 1)
-        if pygame.K_UP in ui.keys:
-            self.scroll = max(0, self.scroll - 1)
+    rows = self._rows()
 
-        y = 120
-        for title, stats, note in rows[self.scroll:self.scroll + self.PER_PAGE]:
-            ui.text(title, (ui.s(MID - 320), ui.s(y)), "body", P.BONE)
-            ui.text(stats, (ui.s(MID - 150), ui.s(y + 2)), "small", P.BONE_DIM)
-            if note:
-                ui.text(ui.truncate(note, ui.s(420), "small"),
-                        (ui.s(MID - 150), ui.s(y + 24)), "small", P.EMBER_DARK)
-            y += 56
+    # ==========================================
+    # W / ↑：圖鑑往上
+    # S / ↓：圖鑑往下
+    # A / ←：上一個分類
+    # D / →：下一個分類
+    # ==========================================
 
-        if len(rows) > self.PER_PAGE:
-            last = min(len(rows), self.scroll + self.PER_PAGE)
-            ui.text(f"↑↓ 捲動　{self.scroll + 1}–{last} / {len(rows)}",
-                    (ui.s(MID), ui.s(552)), "small", P.MUTED, "center")
+    # 上
+    if pygame.K_w in ui.keys or pygame.K_UP in ui.keys:
+        self.scroll = max(0, self.scroll - 1)
 
-        if ui.button("back", ui.box(MID - 90, 578, 180, 40), "返回"):
-            app.pop()
+    # 下
+    if pygame.K_s in ui.keys or pygame.K_DOWN in ui.keys:
+        self.scroll = min(
+            max(0, len(rows) - self.PER_PAGE),
+            self.scroll + 1,
+        )
+
+    # 左
+    if pygame.K_a in ui.keys or pygame.K_LEFT in ui.keys:
+        self.page = (self.page - 1) % len(self.PAGES)
+        self.scroll = 0
+
+    # 右
+    if pygame.K_d in ui.keys or pygame.K_RIGHT in ui.keys:
+        self.page = (self.page + 1) % len(self.PAGES)
+        self.scroll = 0
+
+    # Enter：確認目前分類
+    if pygame.K_RETURN in ui.keys or pygame.K_KP_ENTER in ui.keys:
+        self.scroll = 0
+
+    # Esc：返回
+    if pygame.K_ESCAPE in ui.keys:
+        app.pop()
+        return
+
+    # ==========================================
+    # 顯示圖鑑內容
+    # ==========================================
+
+    y = 120
+    for title, stats, note in rows[
+        self.scroll:self.scroll + self.PER_PAGE
+    ]:
+        ui.text(
+            title,
+            (ui.s(MID - 320), ui.s(y)),
+            "body",
+            P.BONE,
+        )
+        ui.text(
+            stats,
+            (ui.s(MID - 150), ui.s(y + 2)),
+            "small",
+            P.BONE_DIM,
+        )
+
+        if note:
+            ui.text(
+                ui.truncate(note, ui.s(420), "small"),
+                (ui.s(MID - 150), ui.s(y + 24)),
+                "small",
+                P.EMBER_DARK,
+            )
+
+        y += 56
+
+    if len(rows) > self.PER_PAGE:
+        last = min(len(rows), self.scroll + self.PER_PAGE)
+        ui.text(
+            f"W/S 或 ↑↓ 捲動　{self.scroll + 1}–{last} / {len(rows)}",
+            (ui.s(MID), ui.s(552)),
+            "small",
+            P.MUTED,
+            "center",
+        )
+
+    if ui.button("back", ui.box(MID - 90, 578, 180, 40), "返回"):
+        app.pop()
 
     def _rows(self) -> list[tuple[str, str, str]]:
         if self.page == 0:
