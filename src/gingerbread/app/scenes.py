@@ -586,14 +586,7 @@ class PauseScene(Scene):
 
 # ── codex ────────────────────────────────────────────────────────────
 class CodexScene(Scene):
-    """怪物圖鑑 / 頭目圖鑑 / 技能圖鑑.
-
-    Every line is generated from the same tables the simulation reads — stats
-    from the spec, mechanic descriptions from the registry entries.  Nothing is
-    written twice, so it cannot say one thing while the game does another, which
-    is what happens to a hand-kept bestiary within a month of the first balance
-    pass.
-    """
+    """怪物圖鑑 / 頭目圖鑑 / 技能圖鑑."""
 
     PAGES = ("怪物", "頭目", "技能")
     PER_PAGE = 7
@@ -603,135 +596,341 @@ class CodexScene(Scene):
         self.page = 0
         self.scroll = 0
 
-   def update(self, app: SceneStack, ui: UI, dt: float) -> None:
-    ui.veil(250)
-    ui.text("圖鑑", (ui.s(MID), ui.s(38)), "big", P.EMBER, "center")
+    def update(self, app: SceneStack, ui: UI, dt: float) -> None:
+        ui.veil(250)
+        ui.text("圖鑑", (ui.s(MID), ui.s(38)), "big", P.EMBER, "center")
 
-    tabs = Stack.split(ui.box(MID - 210, 64, 420, 32), 3, gap=ui.s(6))
-    for index, (name, cell) in enumerate(zip(self.PAGES, tabs)):
-        if ui.button(
-            f"tab{index}",
-            cell,
-            name,
-            selected=index == self.page,
+        # =========================================================
+        # 鍵盤控制
+        #
+        # W / ↑       往上捲動
+        # S / ↓       往下捲動
+        # A / ←       上一個圖鑑
+        # D / →       下一個圖鑑
+        # Enter       確認
+        # Esc         返回
+        # =========================================================
+
+        if pygame.K_w in ui.keys or pygame.K_UP in ui.keys:
+            self._scroll_up()
+
+        if pygame.K_s in ui.keys or pygame.K_DOWN in ui.keys:
+            self._scroll_down()
+
+        if pygame.K_a in ui.keys or pygame.K_LEFT in ui.keys:
+            self._previous_page()
+
+        if pygame.K_d in ui.keys or pygame.K_RIGHT in ui.keys:
+            self._next_page()
+
+        if pygame.K_RETURN in ui.keys or pygame.K_KP_ENTER in ui.keys:
+            self._confirm()
+
+        if pygame.K_ESCAPE in ui.keys:
+            app.pop()
+            return
+
+        # =========================================================
+        # 上方圖鑑分類按鈕
+        # =========================================================
+
+        tabs = Stack.split(
+            ui.box(MID - 210, 64, 420, 32),
+            3,
+            gap=ui.s(6)
+        )
+
+        for index, (name, cell) in enumerate(
+            zip(self.PAGES, tabs)
         ):
-            self.page, self.scroll = index, 0
+            if ui.button(
+                f"tab{index}",
+                cell,
+                name,
+                selected=index == self.page
+            ):
+                self.page = index
+                self.scroll = 0
 
-    rows = self._rows()
+        # =========================================================
+        # 圖鑑內容
+        # =========================================================
 
-    # ==========================================
-    # W / ↑：圖鑑往上
-    # S / ↓：圖鑑往下
-    # A / ←：上一個分類
-    # D / →：下一個分類
-    # ==========================================
+        rows = self._rows()
 
-    # 上
-    if pygame.K_w in ui.keys or pygame.K_UP in ui.keys:
-        self.scroll = max(0, self.scroll - 1)
+        # 防止資料變少後 scroll 超出範圍
+        max_scroll = max(0, len(rows) - self.PER_PAGE)
+        self.scroll = min(self.scroll, max_scroll)
 
-    # 下
-    if pygame.K_s in ui.keys or pygame.K_DOWN in ui.keys:
-        self.scroll = min(
-            max(0, len(rows) - self.PER_PAGE),
-            self.scroll + 1,
-        )
+        y = 120
 
-    # 左
-    if pygame.K_a in ui.keys or pygame.K_LEFT in ui.keys:
-        self.page = (self.page - 1) % len(self.PAGES)
-        self.scroll = 0
-
-    # 右
-    if pygame.K_d in ui.keys or pygame.K_RIGHT in ui.keys:
-        self.page = (self.page + 1) % len(self.PAGES)
-        self.scroll = 0
-
-    # Enter：確認目前分類
-    if pygame.K_RETURN in ui.keys or pygame.K_KP_ENTER in ui.keys:
-        self.scroll = 0
-
-    # Esc：返回
-    if pygame.K_ESCAPE in ui.keys:
-        app.pop()
-        return
-
-    # ==========================================
-    # 顯示圖鑑內容
-    # ==========================================
-
-    y = 120
-    for title, stats, note in rows[
-        self.scroll:self.scroll + self.PER_PAGE
-    ]:
-        ui.text(
-            title,
-            (ui.s(MID - 320), ui.s(y)),
-            "body",
-            P.BONE,
-        )
-        ui.text(
-            stats,
-            (ui.s(MID - 150), ui.s(y + 2)),
-            "small",
-            P.BONE_DIM,
-        )
-
-        if note:
+        for title, stats, note in rows[
+            self.scroll:self.scroll + self.PER_PAGE
+        ]:
             ui.text(
-                ui.truncate(note, ui.s(420), "small"),
-                (ui.s(MID - 150), ui.s(y + 24)),
-                "small",
-                P.EMBER_DARK,
+                title,
+                (ui.s(MID - 320), ui.s(y)),
+                "body",
+                P.BONE
             )
 
-        y += 56
+            ui.text(
+                stats,
+                (ui.s(MID - 150), ui.s(y + 2)),
+                "small",
+                P.BONE_DIM
+            )
 
-    if len(rows) > self.PER_PAGE:
-        last = min(len(rows), self.scroll + self.PER_PAGE)
-        ui.text(
-            f"W/S 或 ↑↓ 捲動　{self.scroll + 1}–{last} / {len(rows)}",
-            (ui.s(MID), ui.s(552)),
-            "small",
-            P.MUTED,
-            "center",
+            if note:
+                ui.text(
+                    ui.truncate(
+                        note,
+                        ui.s(420),
+                        "small"
+                    ),
+                    (ui.s(MID - 150), ui.s(y + 24)),
+                    "small",
+                    P.EMBER_DARK
+                )
+
+            y += 56
+
+        # =========================================================
+        # 捲動提示
+        # =========================================================
+
+        if len(rows) > self.PER_PAGE:
+            last = min(
+                len(rows),
+                self.scroll + self.PER_PAGE
+            )
+
+            ui.text(
+                f"W/S/↑/↓ 捲動　"
+                f"A/D/←/→ 切換圖鑑　"
+                f"Enter 確認　Esc 返回",
+                (ui.s(MID), ui.s(552)),
+                "small",
+                P.MUTED,
+                "center"
+            )
+
+            ui.text(
+                f"{self.scroll + 1}–{last} / {len(rows)}",
+                (ui.s(MID), ui.s(570)),
+                "small",
+                P.MUTED,
+                "center"
+            )
+        else:
+            ui.text(
+                "A/D/←/→ 切換圖鑑　Enter 確認　Esc 返回",
+                (ui.s(MID), ui.s(552)),
+                "small",
+                P.MUTED,
+                "center"
+            )
+
+        # =========================================================
+        # 返回按鈕
+        # =========================================================
+
+        if ui.button(
+            "back",
+            ui.box(MID - 90, 578, 180, 40),
+            "返回"
+        ):
+            app.pop()
+
+    # =============================================================
+    # 鍵盤功能
+    # =============================================================
+
+    def _scroll_up(self) -> None:
+        """W / ↑：往上捲動圖鑑。"""
+        self.scroll = max(0, self.scroll - 1)
+
+    def _scroll_down(self) -> None:
+        """S / ↓：往下捲動圖鑑。"""
+        rows = self._rows()
+
+        max_scroll = max(
+            0,
+            len(rows) - self.PER_PAGE
         )
 
-    if ui.button("back", ui.box(MID - 90, 578, 180, 40), "返回"):
-        app.pop()
+        self.scroll = min(
+            max_scroll,
+            self.scroll + 1
+        )
+
+    def _previous_page(self) -> None:
+        """A / ←：切換到上一個圖鑑。"""
+        self.page = max(0, self.page - 1)
+
+        # 切換分類後回到第一頁
+        self.scroll = 0
+
+    def _next_page(self) -> None:
+        """D / →：切換到下一個圖鑑。"""
+        self.page = min(
+            len(self.PAGES) - 1,
+            self.page + 1
+        )
+
+        # 切換分類後回到第一頁
+        self.scroll = 0
+
+    def _confirm(self) -> None:
+        """Enter：確認目前的圖鑑分類。"""
+
+        # 目前圖鑑沒有需要 Enter 執行的項目，
+        # 因此 Enter 只負責確認目前分類。
+        #
+        # 如果之後想讓 Enter 打開怪物詳細資料，
+        # 可以在這裡加入。
+        pass
+
+    # =============================================================
+    # 圖鑑資料
+    # =============================================================
 
     def _rows(self) -> list[tuple[str, str, str]]:
         if self.page == 0:
-            return [self._monster_row(s) for s in MONSTERS.values()]
+            return [
+                self._monster_row(s)
+                for s in MONSTERS.values()
+            ]
+
         if self.page == 1:
-            return [self._boss_row(s) for s in BOSSES.values()]
-        return [self._skill_row(s) for s in SPELL_TABLE.values()]
+            return [
+                self._boss_row(s)
+                for s in BOSSES.values()
+            ]
+
+        return [
+            self._skill_row(s)
+            for s in SPELL_TABLE.values()
+        ]
+
+    # =============================================================
+    # 機制說明
+    # =============================================================
 
     @staticmethod
     def _mechanics(spec) -> str:
-        names = list(getattr(spec, "traits", ()))
+        names = list(
+            getattr(spec, "traits", ())
+        )
+
         if getattr(spec, "behaviour", "charge") != "charge":
-            names.insert(0, spec.behaviour)
-        return "　".join(describe_mechanic(name) for name in names)
+            names.insert(
+                0,
+                spec.behaviour
+            )
 
-    def _monster_row(self, spec) -> tuple[str, str, str]:
-        weak = ELEMENTS.get(spec.weakness or "", {}).get("name")
-        stats = (f"血 {spec.hp}　速 {spec.speed:.0f}　糖霜 {spec.sugar}"
-                 + ("　打不退" if not spec.knockable else "")
-                 + (f"　弱點 {weak}" if weak else ""))
-        return (spec.name, stats, self._mechanics(spec))
+        return "　".join(
+            describe_mechanic(name)
+            for name in names
+        )
 
-    def _boss_row(self, spec) -> tuple[str, str, str]:
-        weak = ELEMENTS.get(spec.weakness or "", {}).get("name", "沒有單一解答")
-        stats = f"{spec.title}　血 {spec.hp}　弱點 {weak}　{len(spec.phases)} 階段"
-        return (spec.name, stats,
-                spec.phases[0].announce or self._mechanics(spec))
+    # =============================================================
+    # 怪物
+    # =============================================================
 
-    def _skill_row(self, spec) -> tuple[str, str, str]:
-        element = ELEMENTS.get(spec.element, {}).get("name", "")
-        stats = (f"{element}　技能點 {spec.cost}　冷卻 {spec.cooldown:.0f} 秒　"
-                 + (f"持續 {spec.duration:.0f} 秒" if spec.duration else "瞬間"))
-        return (spec.name, stats, spec.description)
+    def _monster_row(
+        self,
+        spec
+    ) -> tuple[str, str, str]:
+
+        weak = ELEMENTS.get(
+            spec.weakness or "",
+            {}
+        ).get("name")
+
+        stats = (
+            f"血 {spec.hp}　"
+            f"速 {spec.speed:.0f}　"
+            f"糖霜 {spec.sugar}"
+            + (
+                "　打不退"
+                if not spec.knockable
+                else ""
+            )
+            + (
+                f"　弱點 {weak}"
+                if weak
+                else ""
+            )
+        )
+
+        return (
+            spec.name,
+            stats,
+            self._mechanics(spec)
+        )
+
+    # =============================================================
+    # 頭目
+    # =============================================================
+
+    def _boss_row(
+        self,
+        spec
+    ) -> tuple[str, str, str]:
+
+        weak = ELEMENTS.get(
+            spec.weakness or "",
+            {}
+        ).get(
+            "name",
+            "沒有單一解答"
+        )
+
+        stats = (
+            f"{spec.title}　"
+            f"血 {spec.hp}　"
+            f"弱點 {weak}　"
+            f"{len(spec.phases)} 階段"
+        )
+
+        return (
+            spec.name,
+            stats,
+            spec.phases[0].announce
+            or self._mechanics(spec)
+        )
+
+    # =============================================================
+    # 技能
+    # =============================================================
+
+    def _skill_row(
+        self,
+        spec
+    ) -> tuple[str, str, str]:
+
+        element = ELEMENTS.get(
+            spec.element,
+            {}
+        ).get("name", "")
+
+        stats = (
+            f"{element}　"
+            f"技能點 {spec.cost}　"
+            f"冷卻 {spec.cooldown:.0f} 秒　"
+            + (
+                f"持續 {spec.duration:.0f} 秒"
+                if spec.duration
+                else "瞬間"
+            )
+        )
+
+        return (
+            spec.name,
+            stats,
+            spec.description
+        )
 
 
 def build_menu(app_state) -> Scene:
